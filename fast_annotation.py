@@ -289,6 +289,51 @@ class Annotator(QtWidgets.QMainWindow):
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
 
+    ## Load history from label file
+    def _label_path_for(self, img_path: str) -> str:
+        return os.path.splitext(img_path)[0] + ".txt"
+
+    def _ensure_class_index(self, cls_id: int):
+        """If labels contain a class id beyond current list, pad class list."""
+        while cls_id >= self.class_list.count():
+            self.class_list.addItem(f"Class{self.class_list.count()}")
+
+    def load_yolo_labels(self, img_path: str, w: int, h: int) -> int:
+        """Load YOLO-seg labels into self.instances. Returns count loaded."""
+        label_path = self._label_path_for(img_path)
+        if not os.path.exists(label_path):
+            return 0
+
+        loaded = []
+        with open(label_path, "r", encoding="utf-8") as f:
+            for ln in f:
+                parts = ln.strip().split()
+                if len(parts) < 3:
+                    continue
+                try:
+                    cls_id = int(float(parts[0]))
+                except Exception:
+                    continue
+                coords = [float(x) for x in parts[1:]]
+                if len(coords) < 6:  # need at least 3 points
+                    continue
+                # denormalize to image coords
+                pts = []
+                it = iter(coords)
+                for x, y in zip(it, it):
+                    ix = int(np.clip(round(x * w), 0, w - 1))
+                    iy = int(np.clip(round(y * h), 0, h - 1))
+                    pts.append([ix, iy])
+                if len(pts) < 3:
+                    continue
+                poly = np.asarray(pts, dtype=np.int32)
+                self._ensure_class_index(cls_id)
+                loaded.append(Instance(poly=poly, cls_id=cls_id))
+
+        self.instances = loaded
+        # refresh next instance id
+        self._next_inst_id = len(self.instances)
+        return len(self.instances)
 
 
 
@@ -305,10 +350,24 @@ class Annotator(QtWidgets.QMainWindow):
             raise RuntimeError(f"Failed to read image: {img_path}")
         self.segmenter.set_image(self.image_bgr)
         self.view.set_image(self.image_bgr)
-        self.instances.clear(); self.undo_stack.clear(); self.redo_stack.clear()
-        self.preview_mask = None; self.preview_point = None; self.hover_instance_idx = None
+
+        # reset transient UI state
+        self.undo_stack.clear(); self.redo_stack.clear()
+        self.preview_mask = None; self.preview_point = None
+        self.hover_instance_idx = None
+        self.preview_locked = False
+        self.pending_inst_idx = None
         self.view.set_highlight(None)
-        self.update()
+
+        # NEW: load any existing labels into instances
+        h, w = self.image_bgr.shape[:2]
+        n_loaded = self.load_yolo_labels(img_path, w, h)
+
+        # show loaded polys
+        self.view.set_temp_poly(None)
+        self.view.set_overlay(None, [inst.poly for inst in self.instances])
+        self.info_label.setText(f"Loaded {n_loaded} instances from {os.path.basename(self._label_path_for(img_path))}" if n_loaded else "No labels found; start annotating.")
+
 
     # ---------- Events ----------
     def on_class_selected(self, row: int):
