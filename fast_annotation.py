@@ -247,7 +247,15 @@ class Annotator(QtWidgets.QMainWindow):
         right_layout.addWidget(footer_w, 0) # always visible
 
         # Put into main layout
-        main.addWidget(self.view, 1)
+        # Put the image view inside a scroll area so it can scroll when zoomed
+        self.img_scroll = QtWidgets.QScrollArea()
+        self.img_scroll.setWidgetResizable(False)                 # we control the content size
+        self.img_scroll.setAlignment(QtCore.Qt.AlignCenter)       # keep image centered when smaller
+        self.img_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+        self.img_scroll.setWidget(self.view)
+        main.addWidget(self.img_scroll, 1)
+
         main.addWidget(right, 0)
 
         # Keyboard shortcuts
@@ -605,70 +613,67 @@ class ImageView(QtWidgets.QLabel):
 
 
     def _invalidate_and_repaint(self):
-        """Repaint the label: draw base image, then mask, then polygons, then temp outline."""
         if self._img_rgb is None or self.width() <= 1 or self.height() <= 1:
+            # When inside a QScrollArea, width/height may be 0 before the first setFixedSize.
+            # We can still proceed once we know image size.
+            pass
+
+        # If we have no image, bail early.
+        if self._img_rgb is None:
             return
 
-        # Prepare a canvas the size of the label
-        canvas_size = QtCore.QSize(self.width(), self.height())
+        # Canvas size is the widget size (will be setFixedSize below)
+        view_w = self.parent().width() if self.parent() else self.width()
+        view_h = self.parent().height() if self.parent() else self.height()
+
+        img_w, img_h = self._img_w, self._img_h
+        if img_w == 0 or img_h == 0:
+            return
+
+        # Compute fit scale and apply zoom (render-only)
+        scale_fit = min(max(view_w, 1) / img_w, max(view_h, 1) / img_h)
+        scale = scale_fit * getattr(self, "zoom", 1.0)
+
+        disp_w = int(round(img_w * scale))
+        disp_h = int(round(img_h * scale))
+
+        # IMPORTANT: tell the scroll area how big the content is
+        self.setFixedSize(disp_w, disp_h)
+        self._display_rect = QtCore.QRect(0, 0, disp_w, disp_h)
+
+        # Prepare canvas exactly the widget size
+        canvas_size = QtCore.QSize(disp_w, disp_h)
         if self._canvas.size() != canvas_size:
             self._canvas = QtGui.QPixmap(canvas_size)
-        # Clear to window color
         self._canvas.fill(self.palette().color(QtGui.QPalette.Window))
 
         painter = QtGui.QPainter(self._canvas)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
         painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform, True)
 
-        # Compute aspect-fit rect for the image within the label
-        img_w, img_h = self._img_w, self._img_h
-        view_w, view_h = self.width(), self.height()
-        if img_w == 0 or img_h == 0:
-            painter.end()
-            self.setPixmap(self._canvas)
-            return
-
-        scale_fit = min(view_w / img_w, view_h / img_h)
-        scale = scale_fit * self.zoom
-
-        disp_w = int(round(img_w * scale))
-        disp_h = int(round(img_h * scale))
-        off_x = (view_w - disp_w) // 2
-        off_y = (view_h - disp_h) // 2
-        self._display_rect = QtCore.QRect(off_x, off_y, disp_w, disp_h)
-
-        # --- Draw the BASE IMAGE first ---
-        # Ensure contiguous memory for QImage
+        # Draw base image scaled to widget
         rgb = np.ascontiguousarray(self._img_rgb)
         qimg = QtGui.QImage(rgb.data, img_w, img_h, 3 * img_w, QtGui.QImage.Format_RGB888)
         painter.drawImage(self._display_rect, qimg)
 
-        # scale factors for overlays
         sx = disp_w / img_w
         sy = disp_h / img_h
 
-        # 1) Draw hover/locked mask first (so outlines appear on top)
+        # Mask underneath
         if self.overlay_mask is not None:
-            if self.overlay_mask.shape[:2] != (img_h, img_w):
-                mask_u8 = (self.overlay_mask.astype(np.uint8) * 255)
+            mask_u8 = (self.overlay_mask.astype(np.uint8) * 255)
+            if mask_u8.shape[:2] != (img_h, img_w):
                 mask_u8 = cv2.resize(mask_u8, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
-            else:
-                mask_u8 = (self.overlay_mask.astype(np.uint8) * 255)
-
             mask_rgba = np.zeros((img_h, img_w, 4), dtype=np.uint8)
-            mask_rgba[mask_u8 > 0] = [255, 0, 0, 80]  # red with alpha
-
+            mask_rgba[mask_u8 > 0] = [255, 0, 0, 80]
             qmask = QtGui.QImage(mask_rgba.data, img_w, img_h, 4 * img_w, QtGui.QImage.Format_RGBA8888)
             painter.drawImage(self._display_rect, qmask)
 
-        # Helper to draw a polygon with a given pen
+        # Helper to draw a polygon (image coords → widget coords)
         def _draw_poly(poly: np.ndarray, pen: QtGui.QPen):
             if poly is None or len(poly) < 2:
                 return
-            pts = np.stack([
-                off_x + poly[:, 0] * sx,
-                off_y + poly[:, 1] * sy
-            ], axis=1).astype(np.float32)
+            pts = np.stack([poly[:, 0] * sx, poly[:, 1] * sy], axis=1).astype(np.float32)
             painter.setPen(pen)
             path = QtGui.QPainterPath()
             path.moveTo(float(pts[0, 0]), float(pts[0, 1]))
@@ -677,7 +682,7 @@ class ImageView(QtWidgets.QLabel):
             path.closeSubpath()
             painter.drawPath(path)
 
-        # 2) Draw confirmed polygons (green, golden if highlighted)
+        # Committed polys
         for i, poly in enumerate(self.polys):
             if poly is None or len(poly) < 2:
                 continue
@@ -685,8 +690,8 @@ class ImageView(QtWidgets.QLabel):
             pen.setWidth(3 if (self.highlight_idx is not None and i == self.highlight_idx) else 2)
             _draw_poly(poly, pen)
 
-        # 3) Draw temporary (locked preview) polygon outline (blue dashed)
-        if getattr(self, 'temp_poly', None) is not None and len(self.temp_poly) >= 2:
+        # Temp outline on top
+        if getattr(self, "temp_poly", None) is not None and len(self.temp_poly) >= 2:
             pen = QtGui.QPen(QtGui.QColor(0, 153, 255))
             pen.setWidth(2)
             pen.setStyle(QtCore.Qt.DashLine)
@@ -696,21 +701,20 @@ class ImageView(QtWidgets.QLabel):
         self.setPixmap(self._canvas)
 
 
+
     # ----------- coordinate transforms -----------
-    def _view_to_image(self, pos: QtCore.QPoint) -> Optional[Tuple[int, int]]:
-        """Map label coords -> image coords. Return None if outside displayed image."""
-        if self._img_rgb is None or self._display_rect.isNull():
+    def _view_to_image(self, pos: QtCore.QPoint):
+        if self._img_rgb is None:
             return None
-        if not self._display_rect.contains(pos):
+        if not (0 <= pos.x() < self.width() and 0 <= pos.y() < self.height()):
             return None
-        x = (pos.x() - self._display_rect.left())
-        y = (pos.y() - self._display_rect.top())
-        # scale back to image coordinates
-        sx = self._img_w / self._display_rect.width()
-        sy = self._img_h / self._display_rect.height()
-        ix = int(np.clip(round(x * sx), 0, self._img_w - 1))
-        iy = int(np.clip(round(y * sy), 0, self._img_h - 1))
+        # Map widget coords → image coords using current drawn size
+        sx = self._img_w / max(self.width(), 1)
+        sy = self._img_h / max(self.height(), 1)
+        ix = int(np.clip(round(pos.x() * sx), 0, self._img_w - 1))
+        iy = int(np.clip(round(pos.y() * sy), 0, self._img_h - 1))
         return ix, iy
+
 
     # ----------- mouse events -----------
     def mouseMoveEvent(self, ev: QtGui.QMouseEvent):
