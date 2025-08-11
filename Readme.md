@@ -23,8 +23,12 @@ This app uses the SAM2 backend from: https://github.com/Gy920/segment-anything-2
 python -m venv venv
 source venv/bin/activate
 
+# Download Model
+    chmod +x download_models.sh
+    ./download_models.sh
+
 # SAM2 backend (installed editable so its modules are importable)
-    git clone https://github.com/Gy920/segment-anything-2-real-time.git
+    git clone https://github.com/NomanAnjum09/segment-anything-2-real-time
     cd segment-anything-2-real-time/
     pip install -e .
     cd ..
