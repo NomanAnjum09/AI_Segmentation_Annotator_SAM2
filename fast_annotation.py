@@ -257,8 +257,31 @@ class Annotator(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Z"), self, activated=self.undo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Escape"), self, activated=self.cancel_preview)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=self.view.zoom_in)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self, activated=self.view.zoom_in)  # some keyboards
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+-"), self, activated=self.view.zoom_out)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+0"), self, activated=self.view.reset_zoom)
+        QtWidgets.QShortcut(QtGui.QKeySequence("F11"),   self, activated=lambda: self.setWindowState(self.windowState() ^ QtCore.Qt.WindowFullScreen))
+
         # Reasonable default/floor sizes
         self.setMinimumSize(900, 600)
+
+        self.zoom_out_btn = QtWidgets.QPushButton("−")
+        self.zoom_out_btn.setFixedWidth(36)
+        self.zoom_in_btn  = QtWidgets.QPushButton("+")
+        self.zoom_in_btn.setFixedWidth(36)
+
+        self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText("Zoom out")))
+        self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(),  self.info_label.setText("Zoom in")))
+
+        footer.addWidget(self.zoom_out_btn)   # add before Export
+        footer.addWidget(self.zoom_in_btn)
+
+        self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+        self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+
+
 
 
     # ---------- Image handling ----------
@@ -529,7 +552,31 @@ class ImageView(QtWidgets.QLabel):
         self._canvas = QtGui.QPixmap()   # full label size
         self._display_rect = QtCore.QRect()  # where the image is drawn inside the label
 
+        self.zoom = 1.0           # 1.0 = fit-to-view baseline
+        self.min_zoom = 0.1
+        self.max_zoom = 8.0
+        self.user_zoomed = False   # becomes True after first manual zoom
+
+
     # ----------- public API -----------
+
+    def set_zoom(self, z: float):
+        self.zoom = float(np.clip(z, self.min_zoom, self.max_zoom))
+        self.user_zoomed = True
+        self._invalidate_and_repaint()
+
+    def zoom_in(self, step: float = 0.2):
+        self.set_zoom(self.zoom * (1.0 + step))
+
+    def zoom_out(self, step: float = 0.2):
+        self.set_zoom(self.zoom / (1.0 + step))
+
+    def reset_zoom(self):
+        self.zoom = 1.0
+        self.user_zoomed = False
+        self._invalidate_and_repaint()
+
+
     def set_image(self, bgr: np.ndarray):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         self._img_rgb = rgb
@@ -551,7 +598,11 @@ class ImageView(QtWidgets.QLabel):
     # ----------- render pipeline -----------
     def resizeEvent(self, ev: QtGui.QResizeEvent):
         super().resizeEvent(ev)
+        # If the user hasn't manually zoomed, keep the image fitted (zoom=1.0 baseline)
+        if not self.user_zoomed:
+            self.zoom = 1.0
         self._invalidate_and_repaint()
+
 
     def _invalidate_and_repaint(self):
         """Repaint the label: draw base image, then mask, then polygons, then temp outline."""
@@ -577,7 +628,9 @@ class ImageView(QtWidgets.QLabel):
             self.setPixmap(self._canvas)
             return
 
-        scale = min(view_w / img_w, view_h / img_h)
+        scale_fit = min(view_w / img_w, view_h / img_h)
+        scale = scale_fit * self.zoom
+
         disp_w = int(round(img_w * scale))
         disp_h = int(round(img_h * scale))
         off_x = (view_w - disp_w) // 2
@@ -710,8 +763,7 @@ def main():
     seg = Segmenter(args.checkpoint, args.config)
     win = Annotator(args.images, seg, args.classes)
     # Default window size
-    win.resize(1200, 800)
-    win.show()
+    win.showMaximized()
     sys.exit(app.exec_())
 
 
