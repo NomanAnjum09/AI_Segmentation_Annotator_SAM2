@@ -1,31 +1,4 @@
-"""
-SAM2 Fast Segmentation Annotator (PyQt5)
 
-Features
-- Hover over the image to preview a SAM/SAM2 mask at the cursor.
-- If hovering/clicking over an *already annotated* object, highlight it and select its class (no duplicate added).
-- Left‑click on background/object → confirm a new mask and add it to the annotation.
-- Sidebar to pick/add classes. Each confirmed instance is assigned the selected class.
-- Delete/Backspace to remove last; Ctrl+Z/Shift+Ctrl+Z for undo/redo.
-- Save to YOLO segmentation format (polygon): `class_id x1 y1 x2 y2 ...` (normalized).
-- Loads an image folder; creates matching `.txt` next to images on Save.
-- Auto-select UI theme (light/dark) based on system settings (can override with `--theme`).
-
-Requirements
-  pip install pyqt5 opencv-python-headless numpy torch
-  # For models (choose one):
-  # SAM 2 (recommended):
-  #   pip install -U git+https://github.com/facebookresearch/segment-anything-2.git
-  #   (provide a SAM2 checkpoint path)
-  # OR Original SAM (fallback):
-  #   pip install git+https://github.com/facebookresearch/segment-anything.git
-
-Run
-  python sam2_annotator.py --images /path/to/images \
-                           --checkpoint /path/to/sam2_or_sam_checkpoint.pth \
-                           --model-type sam2_hiera_l   # or vit_h for original SAM \
-                           --theme auto  # or light/dark
-"""
 from __future__ import annotations
 import os
 import sys
