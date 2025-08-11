@@ -171,7 +171,7 @@ class Annotator(QtWidgets.QMainWindow):
 
         self.class_list = QtWidgets.QListWidget()
         # Keep it flexible but not unbounded
-        self.class_list.setMinimumHeight(200)
+        self.class_list.setMinimumHeight(320)
         self.class_list.setMaximumHeight(500)  # prevents runaway height on tall screens
         for name in class_names:
             self.class_list.addItem(name)
