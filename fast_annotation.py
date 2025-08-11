@@ -1,16 +1,21 @@
-
-from __future__ import annotations
-import os
-import sys
 import argparse
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+import os, os.path as osp
+os.environ.pop("QT_PLUGIN_PATH", None)                 # avoid cv2's plugin dir
+os.environ.setdefault("QT_QPA_PLATFORM", "xcb")        # prefer X11 on Linux
 
+try:
+    import PyQt5  # import first to locate its plugins
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = osp.join(
+        osp.dirname(PyQt5.__file__), "Qt", "plugins", "platforms"
+    )
+except Exception:
+    pass
+import sys
 import numpy as np
-import cv2
-
-from PyQt5 import QtCore, QtGui, QtWidgets
-
+from PyQt5 import QtCore, QtGui, QtWidgets   # import PyQt5 BEFORE cv2
+import cv2   
+from typing import List, Tuple, Optional
 # -------------------- SAM / SAM2 loader --------------------
 class Segmenter:
     def __init__(self, ckpt_path: str, config: str, device: str = None):
