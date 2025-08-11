@@ -100,8 +100,10 @@ Example:
 - Qt “xcb” plugin errors on Linux
     Use headless OpenCV and install system libs:
     ```bash
-    pip uninstall -y opencv-python opencv-contrib-python
-    pip install --no-cache-dir opencv-python-headless
+    python -m pip install --upgrade pip setuptools wheel
+    pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless numpy
+    pip install --no-cache-dir "numpy>=2.0" "opencv-python-headless>=4.8.1.78"
+
 
     sudo apt-get install -y libxcb1 libx11-xcb1 libxkbcommon-x11-0 \
     libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
