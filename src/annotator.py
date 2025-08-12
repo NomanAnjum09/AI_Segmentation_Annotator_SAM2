@@ -167,12 +167,25 @@ class Annotator(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"), self, activated=self.undo_last)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Z"), self, activated=self.undo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
-        QtWidgets.QShortcut(QtGui.QKeySequence("Escape"), self, activated=self.cancel_preview)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=self.view.zoom_in)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self, activated=self.view.zoom_in)  # some keyboards
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+-"), self, activated=self.view.zoom_out)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+0"), self, activated=self.view.reset_zoom)
         QtWidgets.QShortcut(QtGui.QKeySequence("F11"),   self, activated=lambda: self.setWindowState(self.windowState() ^ QtCore.Qt.WindowFullScreen))
+        QtWidgets.QShortcut(QtGui.QKeySequence("Return"), self, activated=self.commit_edit)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Enter"),  self, activated=self.commit_edit)
+        def _esc_action():
+            if self.view.edit_mode:
+                self.cancel_edit()
+            else:
+                self.cancel_preview()
+        QtWidgets.QShortcut(QtGui.QKeySequence("Escape"), self, activated=_esc_action)
+
+        # Insert/Delete vertex using last cursor pos
+        QtWidgets.QShortcut(QtGui.QKeySequence("D"), self,
+            activated=lambda: (self._edit_at_cursor("del")))
+        QtWidgets.QShortcut(QtGui.QKeySequence("I"), self,
+            activated=lambda: (self._edit_at_cursor("ins")))
 
         # Reasonable default/floor sizes
         self.setMinimumSize(900, 600)
@@ -191,6 +204,21 @@ class Annotator(QtWidgets.QMainWindow):
         self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+
+
+    def _edit_at_cursor(self, op: str):
+        if not self.view.edit_mode:
+            return
+        cur = self.view.cursor_image_pos()
+        if cur is None:
+            return
+        x,y = cur
+        if op == "del":
+            self.view.delete_nearest_vertex(x, y)
+            self.info_label.setText("Deleted nearest vertex.")
+        elif op == "ins":
+            self.view.insert_vertex_at(x, y)
+            self.info_label.setText("Inserted vertex on nearest edge.")
 
     ## Load history from label file
     def _label_path_for(self, img_path: str) -> str:
@@ -247,6 +275,7 @@ class Annotator(QtWidgets.QMainWindow):
         return files
 
     def _load_current_image(self):
+        self.view.cancel_edit()
         img_path = self.images[self.img_idx]
         self.image_bgr = cv2.imread(img_path)
         if self.image_bgr is None:
@@ -364,11 +393,18 @@ class Annotator(QtWidgets.QMainWindow):
             self.preview_mask = None
             self.view.set_temp_poly(None)
             self.view.set_highlight(hit_idx)
+
+            # BEGIN EDIT MODE
+            self.view.begin_edit(self.instances[hit_idx].poly)
             cls_id = self.instances[hit_idx].cls_id
             if 0 <= cls_id < self.class_list.count():
                 self.class_list.setCurrentRow(cls_id)
-            self.info_label.setText(f"Selected existing instance #{hit_idx} → class #{cls_id}. Change class to update.")
+            self.info_label.setText(
+                "Editing polygon: drag vertices; right-click edge to insert; "
+                "D=delete vertex; Enter=apply; Esc=cancel."
+            )
             return
+
 
         # 2) New click → lock a fresh preview and wait for class click to commit
         try:
@@ -394,6 +430,27 @@ class Annotator(QtWidgets.QMainWindow):
         self.view.set_highlight(None)
         self.view.set_overlay(mask, [inst.poly for inst in self.instances])
         self.info_label.setText(f"Preview locked (score={score:.2f}). Click a class to apply.")
+
+    
+    def commit_edit(self):
+        if self.pending_inst_idx is None:
+            return
+        edited = self.view.commit_edit()
+        if edited is None or len(edited) < 3:
+            self.info_label.setText("No edit to apply.")
+            return
+        self._push_undo()
+        self.instances[self.pending_inst_idx].poly = edited
+        self.view.set_overlay(None, [inst.poly for inst in self.instances])
+        self.view.set_highlight(self.pending_inst_idx)
+        self.info_label.setText(f"Applied edits to instance #{self.pending_inst_idx}.")
+
+    def cancel_edit(self):
+        if self.view.edit_mode:
+            self.view.cancel_edit()
+            self.view.set_overlay(None, [inst.poly for inst in self.instances])
+            self.info_label.setText("Edit cancelled.")
+
 
     # ---------- Undo/Redo ----------
     def _push_undo(self):
@@ -459,6 +516,9 @@ class Annotator(QtWidgets.QMainWindow):
 
     # ---------- Save ----------
     def save_yolo(self):
+        if self.view.edit_mode:
+          self.info_label.setText("Finish (Enter) or cancel (Esc) the current edit before saving.")
+          return
         if self.image_bgr is None:
             return
         img_path = self.images[self.img_idx]
