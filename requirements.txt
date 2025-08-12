@@ -56,6 +56,4 @@ tqdm==4.67.1
 triton==3.4.0
 typing_extensions==4.14.1
 tzdata==2025.2
-ultralytics==8.3.176
-ultralytics-thop==2.0.15
 urllib3==2.5.0

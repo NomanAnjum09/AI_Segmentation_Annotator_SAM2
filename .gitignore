@@ -3,3 +3,4 @@ venv
 models
 images
 mobileclip_blt.ts
+*__pycache__
