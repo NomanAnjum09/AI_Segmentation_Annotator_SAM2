@@ -108,15 +108,19 @@ class ImageView(QtWidgets.QLabel):
             self.edit_poly = np.insert(poly, best_i + 1, best_q, axis=0)
             self._invalidate_and_repaint()
 
-    def delete_nearest_vertex(self, x_img: int, y_img: int):
-        """Delete nearest vertex to (x,y), keeping at least 3 points."""
+    def delete_nearest_vertex(self):
+        """Delete the vertex nearest to the cursor (edit mode only; keep >=3 points)."""
         if not self.edit_mode or self.edit_poly is None or len(self.edit_poly) <= 3:
             return
-        p = np.array([x_img, y_img], dtype=np.float32)
+        if self._last_cursor_img is None:
+            return
+        p = np.array(self._last_cursor_img, dtype=np.float32)
         d2 = np.sum((self.edit_poly - p) ** 2, axis=1)
         i = int(np.argmin(d2))
-        self.edit_poly = np.delete(self.edit_poly, i, axis=0)
-        self._invalidate_and_repaint()
+        if len(self.edit_poly) > 3:
+            self.edit_poly = np.delete(self.edit_poly, i, axis=0)
+            self._invalidate_and_repaint()
+
 
     def cursor_image_pos(self) -> Optional[Tuple[int,int]]:
         return None if self._last_cursor_img is None else (int(self._last_cursor_img[0]), int(self._last_cursor_img[1]))

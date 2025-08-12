@@ -163,7 +163,7 @@ class Annotator(QtWidgets.QMainWindow):
 
         # Keyboard shortcuts
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+S"), self, activated=self.save_yolo)
-        QtWidgets.QShortcut(QtGui.QKeySequence("Delete"), self, activated=self.undo_last)
+        # QtWidgets.QShortcut(QtGui.QKeySequence("Delete"), self, activated=self.undo_last)
         QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"), self, activated=self.undo_last)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Z"), self, activated=self.undo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
@@ -174,6 +174,16 @@ class Annotator(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("F11"),   self, activated=lambda: self.setWindowState(self.windowState() ^ QtCore.Qt.WindowFullScreen))
         QtWidgets.QShortcut(QtGui.QKeySequence("Return"), self, activated=self.commit_edit)
         QtWidgets.QShortcut(QtGui.QKeySequence("Enter"),  self, activated=self.commit_edit)
+        QtWidgets.QShortcut(QtGui.QKeySequence("D"), self,
+                                                        activated=lambda: (
+                                                            self.view.delete_nearest_vertex(),
+                                                            self.info_label.setText("Deleted nearest vertex.")
+                                                        )
+                                                    )
+        QtWidgets.QShortcut(QtGui.QKeySequence("Delete"),     self, activated=self._handle_delete_key)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"),  self, activated=self._handle_delete_key)
+        
+
         def _esc_action():
             if self.view.edit_mode:
                 self.cancel_edit()
@@ -205,6 +215,22 @@ class Annotator(QtWidgets.QMainWindow):
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
 
+    def _handle_delete_key(self):
+    # If editing a polygon → delete a vertex
+        if self.view.edit_mode:
+            before = None if self.view.edit_poly is None else len(self.view.edit_poly)
+            self.view.delete_nearest_vertex()
+            after  = None if self.view.edit_poly is None else len(self.view.edit_poly)
+            if before and after and after < before:
+                self.info_label.setText("Deleted vertex from current polygon (Esc=cancel, Enter=apply).")
+            else:
+                self.info_label.setText("Need at least 3 points; cannot delete more.")
+            return
+
+        # Otherwise → fallback to removing last instance (your original behavior)
+        self._push_undo()
+        self.undo_last()
+        self.info_label.setText("Removed last instance.")
 
     def _edit_at_cursor(self, op: str):
         if not self.view.edit_mode:
