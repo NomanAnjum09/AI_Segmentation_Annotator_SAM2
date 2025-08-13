@@ -1,17 +1,6 @@
-import os, os.path as osp
-os.environ.pop("QT_PLUGIN_PATH", None)                 # avoid cv2's plugin dir
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")        # prefer X11 on Linux
-
-try:
-    import PyQt5  # import first to locate its plugins
-    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = osp.join(
-        osp.dirname(PyQt5.__file__), "Qt", "plugins", "platforms"
-    )
-except Exception:
-    pass
 import numpy as np
 import cv2   
-from typing import Tuple, Optional
+from typing import Tuple
 
 # -------------------- SAM / SAM2 loader --------------------
 class Segmenter:
