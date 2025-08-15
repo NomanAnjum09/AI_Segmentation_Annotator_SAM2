@@ -161,6 +161,17 @@ class ImageView(QtWidgets.QLabel):
         self.highlight_idx = idx
         self._invalidate_and_repaint()
 
+    def clear_all_overlays(self):
+        """Drop every overlay/highlight/temp and force a repaint now."""
+        self.overlay_mask = None
+        self.polys = []
+        self.temp_poly = None
+        self.highlight_idx = None
+        self._invalidate_and_repaint()
+        self.update()
+        self.repaint()
+        QtWidgets.QApplication.processEvents()
+
     # ----------- render pipeline -----------
     def resizeEvent(self, ev: QtGui.QResizeEvent):
         super().resizeEvent(ev)

@@ -12,7 +12,7 @@ except Exception:
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets   # import PyQt5 BEFORE cv2
 import cv2   
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from src.segmentor import Segmenter
 from src.image_view import ImageView
 from src.helpers.dataclasses import Instance
@@ -43,6 +43,8 @@ class Annotator(QtWidgets.QMainWindow):
         # UI
         self._build_ui(class_names)
         self._load_current_image()
+        self._cursor_xy: Optional[Tuple[int,int]] = None
+
 
         # timers for hover preview throttling
         self.hover_timer = QtCore.QTimer()
@@ -164,7 +166,6 @@ class Annotator(QtWidgets.QMainWindow):
         # Keyboard shortcuts
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+S"), self, activated=self.save_yolo)
         # QtWidgets.QShortcut(QtGui.QKeySequence("Delete"), self, activated=self.undo_last)
-        QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"), self, activated=self.undo_last)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Z"), self, activated=self.undo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=self.view.zoom_in)
@@ -174,14 +175,13 @@ class Annotator(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("F11"),   self, activated=lambda: self.setWindowState(self.windowState() ^ QtCore.Qt.WindowFullScreen))
         QtWidgets.QShortcut(QtGui.QKeySequence("Return"), self, activated=self.commit_edit)
         QtWidgets.QShortcut(QtGui.QKeySequence("Enter"),  self, activated=self.commit_edit)
-        QtWidgets.QShortcut(QtGui.QKeySequence("D"), self,
-                                                        activated=lambda: (
-                                                            self.view.delete_nearest_vertex(),
-                                                            self.info_label.setText("Deleted nearest vertex.")
-                                                        )
-                                                    )
-        QtWidgets.QShortcut(QtGui.QKeySequence("Delete"),     self, activated=self._handle_delete_key)
         QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"),  self, activated=self._handle_delete_key)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Delete"), self,
+                                                activated=lambda: (
+                                                    self.remove_instance_under_cursor(),  # you'll define this
+                                                    self.info_label.setText("Deleted instance under cursor.")
+                                                )
+)
         
 
         def _esc_action():
@@ -214,6 +214,50 @@ class Annotator(QtWidgets.QMainWindow):
         self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+
+    def remove_instance_under_cursor(self):
+        # Need cursor location
+        if not hasattr(self, "_cursor_xy") or self._cursor_xy is None:
+            self.info_label.setText("Move the mouse over an instance to delete it.")
+            return
+
+        x, y = self._cursor_xy
+        hit_idx = self._instance_at_point(x, y)
+        if hit_idx is None:
+            self.info_label.setText("No instance under cursor.")
+            return
+
+        # 1) Remove the instance
+        del self.instances[hit_idx]
+        for i, inst in enumerate(self.instances):  # keep ids tidy (optional)
+            inst.inst_id = i
+
+        # 2) Drop any ongoing polygon/preview/seed state
+        self._click_counter = 0
+        self.preview_mask = None
+        # If you ever had edit mode in another build, safely cancel it:
+        if hasattr(self.view, "edit_mode") and getattr(self.view, "edit_mode"):
+            # guard for older edit-enabled variants
+            try:
+                self.view.cancel_edit()
+            except Exception:
+                pass
+
+        # 3) HARD clear all overlays & redraw only remaining instances
+        self.view.clear_all_overlays()
+        if self.instances:
+            self.view.set_overlay(None, [inst.poly for inst in self.instances])
+        else:
+            # ensure absolutely nothing renders
+            self.view.set_overlay(None, [])
+
+        # 4) Final UI polish
+        self.view.set_highlight(None)
+        self.view.set_temp_poly(None)
+        self.info_label.setText("Deleted instance under cursor.")
+
+    
+
 
     def _handle_delete_key(self):
     # If editing a polygon → delete a vertex
@@ -257,6 +301,10 @@ class Annotator(QtWidgets.QMainWindow):
 
     def load_yolo_labels(self, img_path: str, w: int, h: int) -> int:
         """Load YOLO-seg labels into self.instances. Returns count loaded."""
+        # Always start clean so previous image's instances don't leak in
+        self.instances = []
+        self._next_inst_id = 0
+
         label_path = self._label_path_for(img_path)
         if not os.path.exists(label_path):
             return 0
@@ -271,9 +319,11 @@ class Annotator(QtWidgets.QMainWindow):
                     cls_id = int(float(parts[0]))
                 except Exception:
                     continue
+
                 coords = [float(x) for x in parts[1:]]
-                if len(coords) < 6:  # need at least 3 points
+                if len(coords) < 6:  # need at least 3 (x,y) points
                     continue
+
                 # denormalize to image coords
                 pts = []
                 it = iter(coords)
@@ -283,14 +333,15 @@ class Annotator(QtWidgets.QMainWindow):
                     pts.append([ix, iy])
                 if len(pts) < 3:
                     continue
+
                 poly = np.asarray(pts, dtype=np.int32)
                 self._ensure_class_index(cls_id)
                 loaded.append(Instance(poly=poly, cls_id=cls_id))
 
         self.instances = loaded
-        # refresh next instance id
         self._next_inst_id = len(self.instances)
         return len(self.instances)
+
 
 
 
@@ -323,8 +374,9 @@ class Annotator(QtWidgets.QMainWindow):
 
         # show loaded polys
         self.view.set_temp_poly(None)
-        self.view.set_overlay(None, [inst.poly for inst in self.instances])
-        self.info_label.setText(f"Loaded {n_loaded} instances from {os.path.basename(self._label_path_for(img_path))}" if n_loaded else "No labels found; start annotating.")
+        self.view.set_highlight(None)
+        self.preview_mask = None
+        self.view.set_overlay(None, [inst.poly for inst in self.instances] if n_loaded > 0 else [])
 
 
     # ---------- Events ----------
@@ -368,6 +420,7 @@ class Annotator(QtWidgets.QMainWindow):
 
     def on_mouse_move(self, x: int, y: int):
         self.preview_point = (x, y)
+        self._cursor_xy = (x, y)
         # Throttled by timer -> _update_preview
 
     def _instance_at_point(self, x: int, y: int) -> Optional[int]:
