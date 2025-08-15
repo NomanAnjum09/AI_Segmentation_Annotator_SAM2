@@ -611,11 +611,13 @@ class Annotator(QtWidgets.QMainWindow):
 
     # ---------- Navigation ----------
     def prev_image(self):
+        self.save_yolo()
         if self.img_idx > 0:
             self.img_idx -= 1
             self._load_current_image()
 
     def next_image(self):
+        self.save_yolo()
         if self.img_idx < len(self.images) - 1:
             self.img_idx += 1
             self._load_current_image()
