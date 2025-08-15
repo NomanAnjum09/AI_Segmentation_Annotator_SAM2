@@ -62,10 +62,12 @@ source venv/bin/activate
 - Hover: live mask preview
 - Left-click: lock mask (or select existing instance)
 - Class click: assign/modify class for locked/selected instance
-- Delete / Backspace: remove last added instance
+- Delete: remove selected instance
+- Backspace: remove nearest polygon poin to the mouse pointer
 - Ctrl+Z / Ctrl+Shift+Z: undo / redo
 - Ctrl+S: export YOLO labels for current image
 - Prev / Next buttons: navigate images (labels auto-load if present)
+- A / D buttons: navigate images (labels auto-load if present)
 - Zoom: Ctrl +, Ctrl -, Ctrl+0 (reset). Scrollbars appear when zoomed.
 - Esc: cancel current locked preview
 - F11: toggle fullscreen
