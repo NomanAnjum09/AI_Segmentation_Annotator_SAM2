@@ -174,6 +174,8 @@ class Annotator(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+0"), self, activated=self.view.reset_zoom)
         QtWidgets.QShortcut(QtGui.QKeySequence("F11"),   self, activated=lambda: self.setWindowState(self.windowState() ^ QtCore.Qt.WindowFullScreen))
         QtWidgets.QShortcut(QtGui.QKeySequence("Return"), self, activated=self.commit_edit)
+        QtWidgets.QShortcut(QtGui.QKeySequence("D"), self, activated=self.next_image)
+        QtWidgets.QShortcut(QtGui.QKeySequence("A"), self, activated=self.prev_image)
         QtWidgets.QShortcut(QtGui.QKeySequence("Enter"),  self, activated=self.commit_edit)
         QtWidgets.QShortcut(QtGui.QKeySequence("Backspace"),  self, activated=self._handle_delete_key)
         QtWidgets.QShortcut(QtGui.QKeySequence("Delete"), self,
@@ -191,11 +193,6 @@ class Annotator(QtWidgets.QMainWindow):
                 self.cancel_preview()
         QtWidgets.QShortcut(QtGui.QKeySequence("Escape"), self, activated=_esc_action)
 
-        # Insert/Delete vertex using last cursor pos
-        QtWidgets.QShortcut(QtGui.QKeySequence("D"), self,
-            activated=lambda: (self._edit_at_cursor("del")))
-        QtWidgets.QShortcut(QtGui.QKeySequence("I"), self,
-            activated=lambda: (self._edit_at_cursor("ins")))
 
         # Reasonable default/floor sizes
         self.setMinimumSize(900, 600)
@@ -213,7 +210,6 @@ class Annotator(QtWidgets.QMainWindow):
 
         self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
-        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self, activated=lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
 
     def remove_instance_under_cursor(self):
         # Need cursor location
