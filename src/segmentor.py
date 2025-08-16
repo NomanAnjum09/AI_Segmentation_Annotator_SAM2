@@ -1,6 +1,10 @@
 import numpy as np
 import cv2   
 from typing import Tuple
+import torch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Using", device)
 
 # -------------------- SAM / SAM2 loader --------------------
 class Segmenter:
@@ -22,7 +26,7 @@ class Segmenter:
         try:
             from sam2.build_sam import build_sam2
             from sam2.sam2_image_predictor import SAM2ImagePredictor
-            sam2 = build_sam2(config, ckpt_path)
+            sam2 = build_sam2(config, ckpt_path,device = device)
             sam2.to(self.device)
             self.predictor = SAM2ImagePredictor(sam2)
             self.kind = "sam2"
