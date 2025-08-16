@@ -4,3 +4,4 @@ models
 images
 mobileclip_blt.ts
 *__pycache__
+.idea
