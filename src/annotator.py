@@ -1,4 +1,6 @@
 import os, os.path as osp
+
+from .stats_view import StatsWindow, compute_class_distribution
 os.environ.pop("QT_PLUGIN_PATH", None)                 # avoid cv2's plugin dir
 os.environ.setdefault("QT_QPA_PLATFORM", "xcb")        # prefer X11 on Linux
 
@@ -117,9 +119,25 @@ class Annotator(QtWidgets.QMainWindow):
         # s.addStretch(1)  # push content up inside the scroll area
         scroll.setWidget(scroll_inner)
         # --- Files list header ---
+        files_header = QtWidgets.QWidget()
+        files_header_layout = QtWidgets.QHBoxLayout(files_header)
+        files_header_layout.setContentsMargins(0, 0, 0, 0)
+        files_header_layout.setSpacing(6)
+
         files_title = QtWidgets.QLabel("Files")
         files_title.setStyleSheet("font-weight: 600; margin-top: 8px;")
-        s.addWidget(files_title)
+        files_header_layout.addWidget(files_title)
+
+        files_header_layout.addStretch(1)
+
+        # The button you want opposite to "Files"
+        self.stats_btn = QtWidgets.QPushButton("Stats 📊")
+        # Optional: make it more “header-like”
+        # self.stats_btn.setFlat(True)
+        self.stats_btn.clicked.connect(self.show_stats_window)  # or your own slot
+        files_header_layout.addWidget(self.stats_btn)
+
+        s.addWidget(files_header)
 
         # --- Files list widget ---
         self.file_list = QtWidgets.QListWidget()
@@ -133,7 +151,7 @@ class Annotator(QtWidgets.QMainWindow):
         self._populate_file_list()
         self.file_list.itemClicked.connect(self._file_item_clicked)
 
-
+        
 
         # ---- Sticky footer with navigation + save ----
         footer_w = QtWidgets.QWidget()
@@ -251,7 +269,16 @@ class Annotator(QtWidgets.QMainWindow):
         self._sync_file_selection()
 
 
-
+    def show_stats_window(self):
+        # create (or reuse) the independent stats window
+        if not hasattr(self, "_stats_win") or self._stats_win is None:
+            self._stats_win = StatsWindow(self)
+        class_names = [self.class_list.item(i).text() for i in range(self.class_list.count())]
+        labels, counts = compute_class_distribution(class_names,self.images)
+        self._stats_win.plot_counts(labels, counts)
+        self._stats_win.show()
+        self._stats_win.raise_()
+        self._stats_win.activateWindow()
 
     def remove_instance_under_cursor(self):
         # Need cursor location
