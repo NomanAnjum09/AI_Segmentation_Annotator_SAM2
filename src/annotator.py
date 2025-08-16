@@ -112,17 +112,28 @@ class Annotator(QtWidgets.QMainWindow):
         add_row_w = QtWidgets.QWidget()
         add_row = QtWidgets.QHBoxLayout(add_row_w)
         add_row.setContentsMargins(0, 0, 0, 0)
-        self.new_class_edit = QtWidgets.QLineEdit()
-        self.new_class_edit.setPlaceholderText("Add new class name")
-        self.add_class_btn = QtWidgets.QPushButton("+")
-        self.add_class_btn.setFixedWidth(28)
-        self.add_class_btn.clicked.connect(self.add_class)
-        add_row.addWidget(self.new_class_edit)
-        add_row.addWidget(self.add_class_btn)
         s.addWidget(add_row_w)
 
-        s.addStretch(1)  # push content up inside the scroll area
+        # s.addStretch(1)  # push content up inside the scroll area
         scroll.setWidget(scroll_inner)
+        # --- Files list header ---
+        files_title = QtWidgets.QLabel("Files")
+        files_title.setStyleSheet("font-weight: 600; margin-top: 8px;")
+        s.addWidget(files_title)
+
+        # --- Files list widget ---
+        self.file_list = QtWidgets.QListWidget()
+        self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.file_list.setAlternatingRowColors(True)
+        self.file_list.setMinimumHeight(220)
+        self.file_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        s.addWidget(self.file_list)
+
+        # Fill & hook
+        self._populate_file_list()
+        self.file_list.itemClicked.connect(self._file_item_clicked)
+
+
 
         # ---- Sticky footer with navigation + save ----
         footer_w = QtWidgets.QWidget()
@@ -210,6 +221,37 @@ class Annotator(QtWidgets.QMainWindow):
 
         self.zoom_in_btn.clicked.connect(lambda: (self.view.zoom_in(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
         self.zoom_out_btn.clicked.connect(lambda: (self.view.zoom_out(), self.info_label.setText(f"Zoom {self.view.zoom*100:.0f}%")))
+
+
+    def _populate_file_list(self):
+        """Fill the file list with basenames of self.images."""
+        self.file_list.clear()
+        for p in self.images:
+            self.file_list.addItem(os.path.basename(p))
+        # highlight current
+        self._sync_file_selection()
+    
+    def _sync_file_selection(self):
+        """Ensure the file list highlights the current image and stays in view."""
+        if not (0 <= self.img_idx < len(self.images)):
+            return
+        self.file_list.blockSignals(True)
+        self.file_list.setCurrentRow(self.img_idx)
+        item = self.file_list.item(self.img_idx)
+        if item is not None:
+            self.file_list.scrollToItem(item, QtWidgets.QAbstractItemView.PositionAtCenter)
+        self.file_list.blockSignals(False)
+
+    def _file_item_clicked(self, item: QtWidgets.QListWidgetItem):
+        row = self.file_list.row(item)
+        if row == self.img_idx:
+            return
+        self.img_idx = row
+        self._load_current_image()
+        self._sync_file_selection()
+
+
+
 
     def remove_instance_under_cursor(self):
         # Need cursor location
@@ -373,6 +415,9 @@ class Annotator(QtWidgets.QMainWindow):
         self.view.set_highlight(None)
         self.preview_mask = None
         self.view.set_overlay(None, [inst.poly for inst in self.instances] if n_loaded > 0 else [])
+        self._sync_file_selection()
+        self._refresh_all_file_tags()
+
 
 
     # ---------- Events ----------
@@ -476,7 +521,7 @@ class Annotator(QtWidgets.QMainWindow):
                 self.class_list.setCurrentRow(cls_id)
             self.info_label.setText(
                 "Editing polygon: drag vertices; right-click edge to insert; "
-                "D=delete vertex; Enter=apply; Esc=cancel."
+                "Backspace=delete nearest vertex to pointer; Enter=apply; Esc=cancel."
             )
             return
 
@@ -560,6 +605,67 @@ class Annotator(QtWidgets.QMainWindow):
         self.view.set_highlight(None)
         self.view.set_overlay(self.preview_mask, [inst.poly for inst in self.instances])
 
+    ### TAg helpers
+    def _label_path_for(self, img_path: str) -> str:
+        return os.path.splitext(img_path)[0] + ".txt"
+
+    def _is_annotated(self, img_path: str) -> bool:
+        return os.path.exists(self._label_path_for(img_path))
+
+    def _make_file_row_widget(self, img_path: str):
+        """Return a QWidget with [ TAG ][ filename ] for the file list."""
+        row = QtWidgets.QWidget()
+        h = QtWidgets.QHBoxLayout(row)
+        h.setContentsMargins(6, 0, 6, 0)
+        h.setSpacing(8)
+
+        tag = QtWidgets.QLabel()
+        tag.setFixedWidth(24)
+        tag.setAlignment(QtCore.Qt.AlignCenter)
+        tag.setStyleSheet("font-weight: 700;")  # color set below
+
+        name = QtWidgets.QLabel(os.path.basename(img_path))
+        name.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
+        name.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+
+        h.addWidget(tag, 0)
+        h.addWidget(name, 1)
+
+        # set initial tag color/text
+        self._style_file_tag_label(tag, self._is_annotated(img_path))
+
+        return row, tag
+
+    def _style_file_tag_label(self, tag_label: QtWidgets.QLabel, annotated: bool):
+        if annotated:
+            tag_label.setText("A")
+            tag_label.setStyleSheet("color: #16a34a; font-weight:700;")  # green
+        else:
+            tag_label.setText("NA")
+            tag_label.setStyleSheet("color: #dc2626; font-weight:700;")  # red
+
+    def _populate_file_list(self):
+        """Fill the file list with custom row widgets and keep tag label refs."""
+        self.file_list.clear()
+        self._file_tag_labels = []  # parallel to self.images
+
+        for p in self.images:
+            item = QtWidgets.QListWidgetItem()
+            row_widget, tag_label = self._make_file_row_widget(p)
+            item.setSizeHint(row_widget.sizeHint())
+            self.file_list.addItem(item)
+            self.file_list.setItemWidget(item, row_widget)
+            self._file_tag_labels.append(tag_label)
+
+        self._sync_file_selection()
+
+    def _refresh_file_tag_at(self, idx: int):
+        if not (0 <= idx < len(self.images)): return
+        self._style_file_tag_label(self._file_tag_labels[idx], self._is_annotated(self.images[idx]))
+
+    def _refresh_all_file_tags(self):
+        for i in range(len(self.images)):
+            self._refresh_file_tag_at(i)
 
     def _instance_at_point(self, x: int, y: int) -> Optional[int]:
         # unchanged: point-in-polygon hit test
@@ -605,8 +711,9 @@ class Annotator(QtWidgets.QMainWindow):
             coords = " ".join(f"{v:.6f}" for v in flat)
             lines.append(f"{inst.cls_id} {coords}")
         label_path = os.path.splitext(img_path)[0] + ".txt"
-        with open(label_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        if len(lines) > 0:
+            with open(label_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
         self.info_label.setText(f"Saved {len(lines)} instances → {os.path.basename(label_path)}")
 
     # ---------- Navigation ----------
@@ -615,19 +722,11 @@ class Annotator(QtWidgets.QMainWindow):
         if self.img_idx > 0:
             self.img_idx -= 1
             self._load_current_image()
+            self._sync_file_selection()
 
     def next_image(self):
         self.save_yolo()
         if self.img_idx < len(self.images) - 1:
             self.img_idx += 1
             self._load_current_image()
-
-    # ---------- Classes ----------
-    def add_class(self):
-        name = self.new_class_edit.text().strip()
-        if not name:
-            return
-        self.class_list.addItem(name)
-        if self.class_list.currentRow() < 0:
-            self.class_list.setCurrentRow(self.class_list.count() - 1)
-        self.new_class_edit.clear()
+            self._sync_file_selection()
