@@ -39,8 +39,8 @@ source venv/bin/activate
 # Run
     python fast_annotation.py \
     --images /path/to/images \
-    --checkpoint /path/to/sam2_checkpoint.pt \
-    --config configs/sam2.1/sam2.1_hiera_l.yaml
+    --model_type large
+    --classes cat dog zebra
 
 
 # Notes
@@ -86,16 +86,14 @@ source venv/bin/activate
 - CLI Options
     ```bash
 --images      Path to an image folder (jpg/jpeg/png/bmp/tif/tiff)
---checkpoint  Path to a SAM2 checkpoint file (.pt / .pth)
---config      Path to a SAM2 config YAML (e.g., sam2.1_hiera_l.yaml)
+--model_type  (tiny/small/large)
 --classes     Optional list of initial class names
 
 Example:
 
     python fast_annotation.py \
     --images data/images \
-    --checkpoint models/sam2.1_hiera_large.pt \
-    --config configs/sam2.1/sam2.1_hiera_l.yaml \
+    --model_type tiny
     --classes A1 A2 A3 B1 B2 C1
 
 # Troubleshooting
