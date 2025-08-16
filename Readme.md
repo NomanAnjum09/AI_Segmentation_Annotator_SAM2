@@ -5,6 +5,12 @@ Hover to preview masks, **left-click** to lock a mask, then **click a class** to
 
 This app uses the SAM2 backend from: https://github.com/Gy920/segment-anything-2-real-time
 
+## Demo
+[![Watch the video](https://img.youtube.com/vi/aAeoKhP3nnc/0.jpg)](https://www.youtube.com/watch?v=aAeoKhP3nnc)
+
+Click Thumbnail to see demo on youtube.
+
+
 ---
 
 ## Features
